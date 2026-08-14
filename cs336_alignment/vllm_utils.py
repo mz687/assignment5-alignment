@@ -78,6 +78,7 @@ class VLLMServer:
         sampling_params: dict,
         batch_size: int | None = None,
     ) -> list[VLLMCompletion]:
+        sampling_params['seed'] = self.seed
         return generate_completions(
             vllm_base_url=self.base_url,
             model_id=self.model_id,
