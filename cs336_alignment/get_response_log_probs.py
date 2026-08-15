@@ -25,6 +25,7 @@ def get_response_log_probs(
     '''
     input_ids = input_ids.to(model.device)
     labels = labels.to(model.device)
+    
     logits_res = model(input_ids).logits
     probs = F.softmax(logits_res, dim=-1)
     log_probs = F.log_softmax(logits_res, dim=-1)

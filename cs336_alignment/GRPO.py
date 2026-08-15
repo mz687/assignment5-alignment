@@ -63,7 +63,7 @@ def compute_rollout_rewards(
         total_reward += reward['reward']
         format_reward += reward['format_reward']
     metadata['mean_total_reward'] = total_reward / n   
-    metadata['mean_forward_reward'] = format_reward / n
+    metadata['mean_format_reward'] = format_reward / n
     return torch.tensor(raw_rewards), metadata
 
 def compute_group_normalized_rewards(
@@ -255,6 +255,7 @@ def grpo_train_step(
     rollout_batch_size = len(repeated_prompts)
     microbatch_size = rollout_batch_size // gradient_accumulation_steps
 
+    mean_token_entropy = 0
     for i in range(0, rollout_batch_size, microbatch_size):
         # Get the microbatch of prompts and rollouts
         repeated_prompts_microbatch = repeated_prompts[i:i+microbatch_size]
@@ -275,12 +276,15 @@ def grpo_train_step(
         )
         policy_log_probs = response_log_probs['log_probs']
         token_entropy = response_log_probs['token_entropy']
+        mean_token_entropy += (token_entropy.detach().mean(-1).mean() * microbatch_size / rollout_batch_size).item()
 
-        raw_rewards, _ = compute_rollout_rewards(
+        raw_rewards, mean_rewards = compute_rollout_rewards(
             reward_fn, 
             rollout_responses_microbatch, 
             repeated_ground_truths_microbatch
         )
+        mean_total_reward = mean_rewards['mean_total_reward']
+        mean_format_reward = mean_rewards['mean_format_reward']
 
         raw_rewards = raw_rewards.to(model.device)
         group_normalized_reward, _ = compute_group_normalized_rewards(
@@ -308,10 +312,14 @@ def grpo_train_step(
         )
         loss.backward()
         losses += loss * microbatch_size / rollout_batch_size
+
+    grads = [p.grad.detach().flatten() for p in model.parameters() if p.grad is not None]
+    grad_norm = torch.cat(grads).norm(p=2).item()
     clip_grad_norm_(model.parameters(), max_grad_norm)
+
     optimizer.step()
     optimizer.zero_grad()
-    return losses, None
+    return losses, mean_total_reward, mean_format_reward, grad_norm, mean_token_entropy
 
 @torch.no_grad()
 def grpo_eval(
@@ -336,10 +344,10 @@ def grpo_eval(
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor | float]]:
     if baseline != 'mean' or advantage_normalizer != 'std' or importance_reweighting_method != "none" or loss_normalization != "sequence":
         raise NotImplementedError
-
+    mean_token_entropy = 0
     losses = 0
     rollout_batch_size = len(repeated_prompts)
-    microbatch_size = 8
+    microbatch_size = 64
     for i in range(0, rollout_batch_size, microbatch_size):
         # Get the microbatch of prompts and rollouts
         repeated_prompts_microbatch = repeated_prompts[i:i+microbatch_size]
@@ -360,12 +368,15 @@ def grpo_eval(
         )
         policy_log_probs = response_log_probs['log_probs']
         token_entropy = response_log_probs['token_entropy']
+        mean_token_entropy += (token_entropy.mean(-1).mean() * microbatch_size / rollout_batch_size).item()
 
-        raw_rewards, _ = compute_rollout_rewards(
+        raw_rewards, mean_rewards = compute_rollout_rewards(
             reward_fn, 
             rollout_responses_microbatch, 
             repeated_ground_truths_microbatch
         )
+        mean_total_reward = mean_rewards['mean_total_reward']
+        mean_format_reward = mean_rewards['mean_format_reward']
 
         raw_rewards = raw_rewards.to(model.device)
         group_normalized_reward, _ = compute_group_normalized_rewards(
@@ -393,7 +404,7 @@ def grpo_eval(
             normalization_constant
         )
         losses += loss * microbatch_size / rollout_batch_size
-    return losses
+    return losses, mean_total_reward, mean_format_reward, mean_token_entropy
 
 def get_args():
     '''
@@ -513,6 +524,16 @@ def get_args():
         default=10,
         help='evaluate on the test dataset every 10 rollout batches'
     )
+    parser.add_argument(
+        '--log_train_rollouts',
+        action='store_true',
+        help='if set, will dump the train rollouts every step'
+    )
+    parser.add_argument(
+        '--log_eval_rollouts',
+        action='store_true',
+        help='if set, will dump the eval rollouts every step'
+    )
     return parser.parse_args()
 
 def load_json_dataset(json_path, num_samples):
@@ -525,7 +546,26 @@ def load_json_dataset(json_path, num_samples):
                 break
     return ret
 
+def dump_prompts_and_rollouts(json_path, prompts_and_rollouts):
+    with open(json_path, 'w') as f:
+        json.dump(prompts_and_rollouts, f, indent=4)
+
+def compute_avg_rollout_len(responses):
+    total_len = 0
+    for response in responses:
+        total_len += len(response)
+    return total_len / len(responses)
+
 def train_GRPO(args):
+    if args.log_train_rollouts:
+        os.makedirs('./train_rollouts', exist_ok=True)
+        os.makedirs(f'./train_rollouts/seed_{args.seed}', exist_ok=True)
+        args.train_rollout_path = f'./train_rollouts/seed_{args.seed}'
+    if args.log_eval_rollouts:
+        os.makedirs('./eval_rollouts', exist_ok=True)
+        os.makedirs(f'./eval_rollouts/seed_{args.seed}', exist_ok=True)
+        args.eval_rollout_path = f'./eval_rollouts/seed_{args.seed}'
+
     wandb_enabled = False
     if 'WANDB_API_KEY' in os.environ:
         wandb_enabled = True
@@ -533,7 +573,7 @@ def train_GRPO(args):
         wandb.login(key=os.environ['WANDB_API_KEY'])
         wandb.init(
             project=args.wandb_project,
-            name=args.wandb_name,
+            name=f"{args.wandb_name}_seed_{args.seed}",
             config=args
         )
     server = VLLMServer(
@@ -543,6 +583,8 @@ def train_GRPO(args):
         seed=args.seed
     )
     server.start()
+    server.init_weight_sync('cuda:0')
+
     sampling_params_r1_zero = {
         'temperature': args.sampling_temperature,
         'max_tokens': args.sampling_max_tokens,
@@ -564,6 +606,7 @@ def train_GRPO(args):
     model, tokenizer = get_model_and_tokenizer(args.model_id_or_path, device='cuda:0')
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=(args.adam_beta1, args.adam_beta2), weight_decay=args.weight_decay)
     for step, i in enumerate(range(0, args.n_train_examples, prompts_per_rollout_step)):
+        step = step + 1
         model.train()
         prompts_and_answers = train_prompts[i:i+prompts_per_rollout_step]
         repeated_ground_truths = extract_gsm8k_ground_truth(prompts_and_answers, repeat=args.group_size)
@@ -574,7 +617,24 @@ def train_GRPO(args):
             sampling_params=sampling_params_r1_zero,
         )
         responses = [response.text for response in completions]
-        loss = grpo_train_step(
+        if args.log_train_rollouts:
+            train_prompts_and_rollouts = [
+                {
+                    'question': prompt, 
+                    'response': response, 
+                    'ground_truth': ground_truth
+                } for prompt, response, ground_truth in zip(
+                    repeated_prompts_eval, 
+                    responses, 
+                    repeated_ground_truths
+                )
+            ]
+            dump_prompts_and_rollouts(
+                os.path.join(args.train_rollout_path, f'step_{step}.json'), 
+                train_prompts_and_rollouts
+            )
+
+        loss, mean_total_reward, mean_format_reward, grad_norm, mean_token_entropy = grpo_train_step(
             model=model,
             tokenizer=tokenizer,
             optimizer=optimizer,
@@ -588,10 +648,14 @@ def train_GRPO(args):
         )
         if wandb_enabled:
             wandb.log({
-                "train_loss": loss
+                "train_loss": loss,
+                "mean_total_reward": mean_total_reward,
+                "mean_format_reward": mean_format_reward,
+                "grad_norm": grad_norm,
+                "mean_token_entropy": mean_token_entropy
             }, step=step)
         server.sync_policy_weights(model)
-        print(f"[step {step} / {num_rollout_steps}] train loss: {loss}")
+        print(f"[step {step} / {num_rollout_steps}] train loss: {loss.detach().item():.4f} | grad norm: {grad_norm:.4f} | mean_total_reward: {mean_total_reward:.4f}: mean_format_reward: {mean_format_reward:.4f} | mean_token_entropy: {mean_token_entropy:.4f}", flush=True)
 
         if step % args.eval_frequency == 0:
             model.eval()
@@ -600,7 +664,25 @@ def train_GRPO(args):
                 sampling_params=sampling_params_r1_zero
             )
             responses = [response.text for response in completions]
-            grpo_eval(
+            avg_response_len_eval = compute_avg_rollout_len(responses)
+            if args.log_eval_rollouts:
+                eval_prompts_and_rollouts = [
+                    {
+                        'question': prompt, 
+                        'response': response, 
+                        'ground_truth': ground_truth
+                    } for prompt, response, ground_truth in zip(
+                        repeated_prompts_eval, 
+                        responses, 
+                        repeated_ground_truths_eval
+                    )
+                ]
+                dump_prompts_and_rollouts(
+                    os.path.join(args.eval_rollout_path, f'step_{step}.json'), 
+                    eval_prompts_and_rollouts
+                )
+
+            eval_loss, mean_total_reward_eval, mean_format_reward_eval, mean_token_entropy_eval = grpo_eval(
                 model=model,
                 tokenizer=tokenizer,
                 reward_fn=r1_zero_reward_fn,
@@ -609,10 +691,14 @@ def train_GRPO(args):
                 repeated_ground_truths=repeated_ground_truths_eval,
                 group_size=args.group_size,
             )
-            print(f"[step {step} / {num_rollout_steps}] eval loss: {loss}")
+            print(f"[step {step} / {num_rollout_steps}] eval loss: {loss.item():.4f} | mean_total_reward_eval: {mean_total_reward_eval:.4f} | mean_format_reward_eval: {mean_format_reward_eval:.4f} | avg_response_len_eval: {avg_response_len_eval:.2f} | mean_token_entropy: {mean_token_entropy_eval:.4f}", flush=True)
             if wandb_enabled:
                 wandb.log({
-                    "eval_loss": loss
+                    "eval_loss": eval_loss,
+                    'mean_total_reward_eval': mean_total_reward_eval,
+                    'mean_format_reward_eval': mean_format_reward_eval,
+                    'avg_response_len_eval': avg_response_len_eval,
+                    "mean_token_entropy_eval": mean_token_entropy_eval,
                 }, step=step)
     if wandb_enabled:
         wandb.finish()

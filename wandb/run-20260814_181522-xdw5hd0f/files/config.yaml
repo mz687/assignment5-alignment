@@ -1,0 +1,183 @@
+_wandb:
+    value:
+        cli_version: 0.26.1
+        e:
+            5e01j3v72ylyy0kh5jyxndn130jyb80y:
+                args:
+                    - --gradient_accumulation_steps
+                    - "16"
+                    - --log_eval_rollouts
+                    - --seed
+                    - "42"
+                cpu_count: 64
+                cpu_count_logical: 128
+                cudaVersion: "13.0"
+                disk:
+                    /:
+                        total: "134865874944"
+                        used: "628117504"
+                email: mz687@scarletmail.rutgers.edu
+                executable: /pscratch/sd/m/mzheng/venvs/assignment5-alignment/bin/python3
+                git:
+                    commit: 5c51ba33e53a8e3a7379ddce926356193a88cb52
+                    remote: https://github.com/mz687/assignment5-alignment.git
+                gpu: NVIDIA A100-SXM4-80GB
+                gpu_count: 4
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100-SXM4-80GB
+                      uuid: GPU-c1bc2f30-e65f-59b5-288c-d24631884b71
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100-SXM4-80GB
+                      uuid: GPU-6831b3be-d611-1847-073b-ff0c0220ad0b
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100-SXM4-80GB
+                      uuid: GPU-e23bd764-b68d-5b35-bf80-1efc82e5670b
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100-SXM4-80GB
+                      uuid: GPU-3f7280d7-8b8d-c2d8-369e-4bafab720ce3
+                host: nid008605
+                memory:
+                    total: "269731749888"
+                os: Linux-6.4.0-150600.23.103_15.0.27-cray_shasta_c-x86_64-with-glibc2.38
+                program: -m cs336_alignment.GRPO
+                python: CPython 3.12.11
+                root: /global/cfs/cdirs/m4410/mzheng/cs336/assignment5-alignment
+                slurm:
+                    cluster_name: perlmutter
+                    cpus_on_node: "128"
+                    gpus: "4"
+                    gpus_on_node: "4"
+                    gtids: "0"
+                    job_account: m4431_g
+                    job_cpus_per_node: "128"
+                    job_end_time: "1786759147"
+                    job_gid: "101898"
+                    job_gpus: 0,1,2,3
+                    job_group: mzheng
+                    job_id: "56981180"
+                    job_licenses: u2:1
+                    job_name: interactive
+                    job_nodelist: nid008605
+                    job_num_nodes: "1"
+                    job_partition: urgent_gpu_ss11
+                    job_qos: gpu_interactive
+                    job_start_time: "1786755547"
+                    job_uid: "101898"
+                    job_user: mzheng
+                    jobid: "56981180"
+                    launch_node_ipaddr: 128.55.64.33
+                    localid: "0"
+                    mpi_type: cray_shasta
+                    nnodes: "1"
+                    nodeid: "0"
+                    nodelist: nid008605
+                    oom_kill_step: "0"
+                    prio_process: "0"
+                    procid: "0"
+                    pty_port: "33573"
+                    pty_win_col: "136"
+                    pty_win_row: "37"
+                    script_context: prolog_task
+                    srun_comm_host: 128.55.64.33
+                    srun_comm_port: "36233"
+                    step_id: "4294967290"
+                    step_launcher_port: "36233"
+                    step_nodelist: nid008605
+                    step_num_nodes: "1"
+                    step_num_tasks: "1"
+                    step_tasks_per_node: "1"
+                    stepid: "4294967290"
+                    stepmgr: nid008605
+                    submit_dir: /global/u2/m/mzheng
+                    submit_host: login24
+                    task_pid: "1121239"
+                    tasks_per_node: "128"
+                    topology_addr: global.group44.nid008605
+                    topology_addr_pattern: switch.switch.node
+                startedAt: "2026-08-15T01:15:22.358672Z"
+                writerId: 5e01j3v72ylyy0kh5jyxndn130jyb80y
+        m: []
+        python_version: 3.12.11
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 71
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 71
+            "3":
+                - 13
+                - 16
+                - 61
+            "4": 3.12.11
+            "5": 0.26.1
+            "6": 5.7.0
+            "12": 0.26.1
+            "13": linux-x86_64
+adam_beta1:
+    value: 0.9
+adam_beta2:
+    value: 0.95
+eval_data_path:
+    value: /global/cfs/cdirs/m4410/mzheng/cs336/assignment5-alignment/data/gsm8k/test.jsonl
+eval_frequency:
+    value: 10
+eval_rollout_path:
+    value: ./eval_rollouts/seed_42
+gradient_accumulation_steps:
+    value: 16
+group_size:
+    value: 8
+log_eval_rollouts:
+    value: true
+log_train_rollouts:
+    value: false
+lr:
+    value: 1e-05
+max_grad_norm:
+    value: 1
+model_id_or_path:
+    value: allenai/OLMo-2-0425-1B
+n_train_examples:
+    value: 6400
+n_val_examples:
+    value: 1024
+num_rollout_steps:
+    value: 200
+rollout_batch_size:
+    value: 256
+sampling_max_tokens:
+    value: 512
+sampling_temperature:
+    value: 1
+seed:
+    value: 42
+train_batch_size:
+    value: 256
+train_data_path:
+    value: /global/cfs/cdirs/m4410/mzheng/cs336/assignment5-alignment/data/gsm8k/train.jsonl
+wandb_name:
+    value: GRPO_GSM8K
+wandb_project:
+    value: CS336_assignment5
+weight_decay:
+    value: 0
